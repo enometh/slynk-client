@@ -418,8 +418,16 @@ SLIME-NETWORK-ERROR when there are network problems sending SEXP."
       ;; on the DONE condition variable, which has already been notified.  Also, CONDITION-WAIT can
       ;; return spuriously before DONE has been notified, so wait again if our result is not yet
       ;; available.
+
+      ;; ;madhu 191210 THE ABOVE STRATEGY IS A RETARDED RECIPE FOR
+      ;; DEADLOCK. It came with the google Copyright
+      ;;
+      (bordeaux-threads:condition-wait done done-lock)
+      #+nil
       (loop until result-available
 	    do (bordeaux-threads:condition-wait done done-lock)))
+    (unless result-available
+      (error "Evaluation failed"))
     (when (and (consp result) (eq (car result) +abort+))
       (error "Evaluation aborted on ~s." (cdr result)))
     result))
