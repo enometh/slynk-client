@@ -80,6 +80,12 @@ concurrently running threads."))
   (bordeaux-threads:with-lock-held (*connections-lock*)
     (setf *open-connections* (remove connection *open-connections*))))
 
+(defun close-all ()
+  (mapcar #'(lambda (x)
+	      (usocket:socket-close (usocket x))
+	      (remove-open-connection x))
+	  *open-connections*))
+
 (defun find-connection-for-thread-id (thread-id)
   "Returns the open Slynk connection associated with THREAD-ID."
   (bordeaux-threads:with-lock-held (*connections-lock*)
