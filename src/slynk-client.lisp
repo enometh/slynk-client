@@ -19,6 +19,10 @@
   ()
   (:documentation "Network problem while evaluating a form."))
 
+(defmacro with-ignore-errors (form)
+  `(with-simple-restart (continue-and-return-swank-client-error "Continue")
+     ,form))
+
 (defclass slynk-connection ()
   ((host-name :reader host-name
               :type string
@@ -124,24 +128,33 @@ symbols in the printed output contain their package names.")
   "Encodes an integer as a 6-character, 24-bit hex string."
   (format nil "~6,'0,X" n))
 
-(defun slime-net-send (sexp usocket)
+(defun slime-net-send (sexp usocket &key secret-p)
   "Sends SEXP to a Slynk server over USOCKET.  The s-expression is read and
-evaluated by the remote Lisp."
+evaluated by the remote Lisp.
+If SECRET-P is T treat sexp as a raw string."
   (let* ((payload (with-standard-io-syntax
-		    (let ((*package* *io-package*))
-		      (prin1-to-string sexp))))
+		    (if secret-p
+			(progn (assert (and sexp (stringp sexp)))
+			       sexp)
+			(let ((*package* *io-package*))
+			  (prin1-to-string sexp)))))
          (utf8-payload (string-to-utf8-octets payload))
          ;; The payload always includes one more octet, an encoded newline character at the end.
-         (payload-length (1+ (length utf8-payload)))
+         (payload-length (if secret-p
+			     (length utf8-payload)
+			     (1+ (length utf8-payload))))
          (utf8-length (string-to-utf8-octets (slime-net-encode-length payload-length)))
          ;; The encoded length always takes 6 octets.
          (message (make-octet-vector (+ (length utf8-length) payload-length))))
     (replace message utf8-length)
     (replace message utf8-payload :start1 (length utf8-length))
     (setf (aref message (1- (length message))) (char-code #\Newline))
+    (if secret-p
+	nil
+	(setf (aref message (1- (length message))) (char-code #\Newline)))
     ;; We use IGNORE-ERRORS here to catch SB-INT:CLOSED-STREAM-ERROR on SBCL and any other
     ;; system-dependent network or stream errors.
-    (let ((success (ignore-errors
+    (let ((success (with-ignore-errors
 		    (write-sequence message (usocket:socket-stream usocket)))))
       (unless success (error 'slime-network-error)))))
 
@@ -153,11 +166,18 @@ if there are communications problems."
     ;; We use IGNORE-ERRORS here to catch SB-INT:CLOSED-STREAM-ERROR on SBCL and any other
     ;; system-dependent network or stream errors.
     (let ((success nil))
-      (ignore-errors
+      (with-ignore-errors
        (progn (force-output (usocket:socket-stream usocket))
 	      (setf success t)))
       (unless success (error 'slime-network-error))))
   (values))
+
+(defun slime-secret ()
+   "Finds the secret file in the user's home directory.  Returns NIL if the file
+ doesn't exist; otherwise, returns the first line of the file."
+  (let ((secret-file (merge-pathnames #p".slime-secret" (user-homedir-pathname))))
+     (with-open-file (input secret-file :if-does-not-exist nil)
+       (when input (read-line input nil "")))))
 
 (defun socket-keep-alive (socket)
   "Configures TCP keep alive packets for SOCKET.  The socket connection will be
@@ -174,6 +194,12 @@ considered dead if keep alive packets are lost."
         (sb-bsd-sockets:sockopt-tcp-keepidle socket) 30
         (sb-bsd-sockets:sockopt-tcp-keepintvl socket) 30))
 
+(defun slime-send-secret (connection)
+  (let ((secret (slime-secret)))
+    (when secret
+      (let ((usocket (usocket connection)))
+	(slime-net-send secret usocket :secret-p t)))))
+
 (defun slime-net-connect (host-name port)
   "Establishes a connection to the Slynk server listening on PORT of HOST-NAME.
 Returns a SLYNK-CONNECTION when the connection attempt is successful.
@@ -188,6 +214,7 @@ Slynk server."
     (let ((connection
 	    (make-instance
 	     'slynk-connection :host-name host-name :port port :usocket usocket)))
+      (slime-send-secret connection)
       connection)))
 
 ;;TODO: Evaluate the real value of this function
