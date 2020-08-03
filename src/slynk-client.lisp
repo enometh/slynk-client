@@ -220,9 +220,12 @@ Slynk server."
 ;;TODO: Evaluate the real value of this function
 (defun send-to-emacs (event)
   "Sends EVENT to Emacs."
-  (print event)
+  ;; (print event)
   ;;(slynk::send (slynk::mconn.control-thread (slynk::default-connection)) event)
-  )
+  (cond ((slynk::default-connection)
+	 (slynk::send (slynk::mconn.control-thread (slynk::default-connection)) event))
+	(t ;; there is no default connection. just print the event.
+	 (warn "send-to-emacs: no connection: ~S" event))))
 
 ;;;; Protocol event handler (the guts)
 
@@ -250,7 +253,8 @@ are communications problems."
 	    ;; communications problems with the remote Lisp.
 	    (handler-case
 		(slime-send `(:emacs-rex ,form ,package-name ,thread ,id) connection)
-	      (slime-network-error ())))
+	      (slime-network-error ()
+		(warn "Thread ~A caught a network error" name))))
 	  :name name))))
     ((:return value id)
      (let ((send-to-emacs t))
