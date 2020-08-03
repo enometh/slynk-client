@@ -185,8 +185,10 @@ considered dead if keep alive packets are lost."
   (declare (ignorable socket))
   #+allegro
   (socket:set-socket-options socket :keepalive t)
-  #+ccl
+  #+(and ccl (not usocket-iolib))
   (ccl::set-socket-options socket :keepalive t)
+  #+(and ccl usocket-iolib)
+  (setf (iolib:socket-option socket :keep-alive) t)
   #+sbcl
   (setf (sb-bsd-sockets:sockopt-keep-alive socket) t)
   #+(and linux sbcl)
