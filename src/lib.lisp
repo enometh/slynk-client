@@ -26,9 +26,10 @@ with ARGS bound to the corresponding values in the CDR of VALUE."
 (deftype octet () '(unsigned-byte 8))
 (deftype octet-vector (&optional length) `(simple-array octet (,length)))
 
+(eval-when (load eval compile)
 (define-constant +maximum-vector-index+ (1- array-dimension-limit)
   :documentation "Largest valid vector index."
-  :test #'=)
+  :test #'=))
 
 (deftype vector-index ()
   "Integer that can be used as a subscript for accessing an array or vector element."
