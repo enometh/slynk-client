@@ -280,6 +280,11 @@ are communications problems."
      (print (list :inspect what wait-thread wait-tag)))
     ((:background-message message)
      (print (list :background-message message)))
+    ;; Handle streaming output from remote Lisp
+    ((:write-string string &rest args)
+     (declare (ignore args))
+     (write-string string)
+     (finish-output))
     ((:debug-condition thread message)
      (assert thread)
      (print (list :debug-condition thread message)))
@@ -385,8 +390,12 @@ SLIME-NETWORK-ERROR when there are network problems sending SEXP."
       ;; on the DONE condition variable, which has already been notified.  Also, CONDITION-WAIT can
       ;; return spuriously before DONE has been notified, so wait again if our result is not yet
       ;; available.
+      ;; Use a timeout to periodically check if the connection is still alive.
       (loop until result-available
-	    do (bordeaux-threads:condition-wait done done-lock)))
+	    do (bordeaux-threads:condition-wait done done-lock :timeout 1)
+	       ;; Check if connection died while we were waiting
+	       (when (eq (state connection) :dead)
+		 (error 'slime-network-error))))
     (when (and (consp result) (eq (car result) +abort+))
       (error "Evaluation aborted on ~s." (cdr result)))
     result))
