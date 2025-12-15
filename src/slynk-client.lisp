@@ -122,7 +122,10 @@ symbols in the printed output contain their package names.")
   "Sends SEXP to a Slynk server over USOCKET.  The s-expression is read and
 evaluated by the remote Lisp."
   (let* ((payload (with-standard-io-syntax
-		    (let ((*package* *io-package*))
+		    (let ((*package* *io-package*)
+                          ;; Prevent SBCL from using #A array syntax for strings
+                          ;; which other implementations (ABCL, etc.) can't read
+                          (*print-readably* nil))
 		      (prin1-to-string sexp))))
          (utf8-payload (string-to-utf8-octets payload))
          ;; The payload always includes one more octet, an encoded newline character at the end.
