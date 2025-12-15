@@ -238,16 +238,19 @@ are communications problems."
     ;; When a remote computation signals a condition and control ends up in the debugger, Slynk
     ;; sends these events back to pop up a Slime breakpoint window.  Forward the events to Slime.
     ;; Modify the thread ID of each event to uniquely identify which remote Lisp generated it.
+    ;; Debug events from remote Lisp - suppress raw output since we don't have Emacs.
+    ;; Errors are handled through the eval wrapper's error catching.
     ((:debug-activate thread level &optional select)
-     (incf thread (thread-offset connection))
-     (send-to-emacs `(:debug-activate ,thread ,level ,select)))
+     (declare (ignore thread level select)))
     ((:debug thread level condition restarts frames continuations)
-     (incf thread (thread-offset connection))
-     ;;TODO: Change this there is no Emacs here
-     (send-to-emacs `(:debug ,thread ,level ,condition ,restarts ,frames ,continuations)))
+     (declare (ignore thread level restarts frames continuations))
+     ;; Just extract the condition message for potential use
+     (when (and condition (listp condition) (first condition))
+       ;; condition is (message type-string annotations)
+       ;; Don't print here - let the eval wrapper handle errors
+       nil))
     ((:debug-return thread level stepping)
-     (incf thread (thread-offset connection))
-     (send-to-emacs `(:debug-return ,thread ,level ,stepping)))
+     (declare (ignore thread level stepping)))
 
     ((:emacs-interrupt thread)
      (slime-send `(:emacs-interrupt ,thread) connection))
