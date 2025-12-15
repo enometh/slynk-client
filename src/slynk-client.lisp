@@ -304,6 +304,80 @@ are communications problems."
     (t
      (error "Unknown event received: ~S" event))))
 
+(defun safe-read-from-string-with-packages (string)
+  "Read STRING, auto-creating missing packages and symbols as needed.
+When a package-not-found or symbol-not-found error occurs, creates the missing
+package/symbol and retries. This allows reading Slynk messages that contain
+symbols from packages that exist only on the remote Lisp
+(e.g., features like CHIPZ-SYSTEM:GRAY-STREAMS)."
+  (let ((packages-created nil)
+        (max-retries 100))  ; Prevent infinite loops
+    (unwind-protect
+         (loop for retry from 0 below max-retries
+               do (handler-case
+                      (return (with-standard-io-syntax
+                                (let ((*package* *io-package*))
+                                  (read-from-string string))))
+                    ;; SBCL signals SB-INT:SIMPLE-READER-PACKAGE-ERROR
+                    ;; Other implementations may signal READER-ERROR or PACKAGE-ERROR
+                    (error (e)
+                      (multiple-value-bind (pkg-name sym-name)
+                          (extract-missing-package-or-symbol e)
+                        (cond
+                          ;; Package doesn't exist - create it
+                          ((and pkg-name (not (find-package pkg-name)))
+                           (make-package pkg-name :use nil)
+                           (push pkg-name packages-created))
+                          ;; Package exists but symbol not found - intern and export it
+                          ((and pkg-name sym-name (find-package pkg-name))
+                           (let ((pkg (find-package pkg-name)))
+                             (export (intern sym-name pkg) pkg)))
+                          ;; Not a package/symbol error, re-signal
+                          (t (error e))))))
+               finally (error "Too many package/symbol creation retries"))
+      ;; Clean up packages we created
+      (dolist (pkg packages-created)
+        (ignore-errors (delete-package pkg))))))
+
+(defun extract-missing-package-or-symbol (condition)
+  "Extract package and symbol names from a reader error condition.
+Returns (VALUES package-name symbol-name) where either may be NIL.
+- If package doesn't exist: returns (package-name NIL)
+- If symbol not found in package: returns (package-name symbol-name)"
+  #+sbcl
+  (when (typep condition 'sb-int:simple-reader-package-error)
+    (let ((msg (princ-to-string condition)))
+      (cond
+        ;; "Package FOO does not exist."
+        ((search "does not exist" msg)
+         (let* ((start (position #\Space msg))
+                (end (when start (position #\Space msg :start (1+ start)))))
+           (when (and start end)
+             (values (subseq msg (1+ start) end) nil))))
+        ;; "Symbol \"BAR\" not found in the FOO package."
+        ((search "not found in the" msg)
+         (let* ((sym-start (position #\" msg))
+                (sym-end (when sym-start (position #\" msg :start (1+ sym-start))))
+                (pkg-marker (search " package" msg))
+                (pkg-end pkg-marker)
+                (pkg-start (when pkg-end
+                             (position #\Space msg :end pkg-end :from-end t))))
+           (when (and sym-start sym-end pkg-start pkg-end)
+             (values (subseq msg (1+ pkg-start) pkg-end)
+                     (subseq msg (1+ sym-start) sym-end))))))))
+  #-sbcl
+  (let ((msg (princ-to-string condition)))
+    (cond
+      ((and (search "package" (string-downcase msg))
+            (or (search "does not exist" (string-downcase msg))
+                (search "not found" (string-downcase msg))))
+       (let* ((start (or (search "Package " msg)
+                         (search "package " msg)))
+              (name-start (when start (+ start 8)))
+              (name-end (when name-start (position #\Space msg :start name-start))))
+         (when (and name-start name-end)
+           (values (subseq msg name-start name-end) nil)))))))
+
 (defun slime-net-read (connection)
   "Reads a Slynk message from a network CONNECTION to a Slynk server.  Returns
 the Slynk event or NIL, if there was a problem reading data."
@@ -323,9 +397,7 @@ the Slynk event or NIL, if there was a problem reading data."
 	    (if (/= (safe-read-sequence message-buffer stream) length)
 		nil
                 (let ((message (utf8-octets-to-string message-buffer)))
-                  (with-standard-io-syntax
-		    (let ((*package* *io-package*))
-		      (read-from-string message))))))))))
+                  (safe-read-from-string-with-packages message))))))))
 
 (defmacro slime-rex ((&rest saved-vars) (sexp connection) &body continuations)
   "(slime-rex (VAR ...) (SEXP CONNECTION) CLAUSES ...)
