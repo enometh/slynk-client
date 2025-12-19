@@ -11,4 +11,5 @@
            #:slime-migrate-evals
            #:slime-network-error
            #:slime-pending-evals-p
-           #:with-slime-connection))
+           #:with-slime-connection
+           #:*write-string-hook*))

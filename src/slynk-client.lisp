@@ -19,6 +19,12 @@
   ()
   (:documentation "Network problem while evaluating a form."))
 
+(defvar *write-string-hook* nil
+  "Optional hook for :write-string events.
+When non-nil, can be either a function of one argument STRING or a stream.
+If a function, it is called with STRING. If a stream, STRING is written to it.
+Otherwise, output goes to *STANDARD-OUTPUT*.")
+
 (defclass slynk-connection ()
   ((host-name :reader host-name
               :type string
@@ -289,8 +295,15 @@ are communications problems."
     ;; Handle streaming output from remote Lisp
     ((:write-string string &rest args)
      (declare (ignore args))
-     (write-string string)
-     (finish-output))
+     (cond
+       ((functionp *write-string-hook*)
+        (funcall *write-string-hook* string))
+       ((streamp *write-string-hook*)
+        (write-string string *write-string-hook*)
+        (finish-output *write-string-hook*))
+       (t
+        (write-string string)
+        (finish-output))))
     ((:debug-condition thread message)
      (assert thread)
      (print (list :debug-condition thread message)))
