@@ -136,7 +136,8 @@ If SECRET-P is T treat sexp as a raw string."
 		    (if secret-p
 			(progn (assert (and sexp (stringp sexp)))
 			       sexp)
-			(let ((*package* *io-package*))
+			(let ((*package* *io-package*)
+			      (*print-readably* nil))
 			  (prin1-to-string sexp)))))
          (utf8-payload (string-to-utf8-octets payload))
          ;; The payload always includes one more octet, an encoded newline character at the end.
