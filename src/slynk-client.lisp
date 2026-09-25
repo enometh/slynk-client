@@ -19,6 +19,21 @@
   ()
   (:documentation "Network problem while evaluating a form."))
 
+(defvar *write-string-hook* nil
+  "Optional hook for :write-string events.
+When non-nil, can be either a function of one argument STRING or a stream.
+If a function, it is called with STRING. If a stream, STRING is written to it.
+Otherwise, output goes to *STANDARD-OUTPUT*.")
+
+(defvar *read-string-hook* nil
+  "Optional hook for :read-string events, sent when the remote Lisp requests
+a line of user input (e.g. user code called READ-LINE). Called with no
+arguments on a dedicated thread; must return the input as a string ending
+in a newline, an empty string to signal end-of-file, or NIL to leave the
+request unanswered (e.g. when the evaluation was interrupted). When the
+hook is NIL, requests are answered with an empty line so the remote Lisp
+does not block forever.")
+
 (defmacro with-ignore-errors (form)
   `(with-simple-restart (continue-and-return-swank-client-error "Continue")
      ,form))
@@ -298,6 +313,27 @@ are communications problems."
      (print (list :y-or-n-p thread tag question)))
     ((:emacs-return-string thread tag string)
      (slime-send `(:emacs-return-string ,thread ,tag ,string) connection))
+    ;; The remote Lisp is blocked reading from *standard-input* and wants a
+    ;; line of user input. Gather it on a separate thread so the dispatcher
+    ;; stays responsive to other events (output, debug, interrupts).
+    ((:read-string thread tag)
+     (if *read-string-hook*
+         (let ((name (format nil "slynk input reader for ~A/~D"
+                             (host-name connection) (port connection))))
+           (bordeaux-threads:make-thread
+            (lambda ()
+              (let ((string (handler-case (funcall *read-string-hook*)
+                              (error () (string #\Newline)))))
+                (when string
+                  (handler-case
+                      (slime-send `(:emacs-return-string ,thread ,tag ,string)
+                                  connection)
+                    (slime-network-error ())))))
+            :name name))
+         (slime-send `(:emacs-return-string ,thread ,tag ,(string #\Newline))
+                     connection)))
+    ((:read-aborted thread tag)
+     (declare (ignore thread tag)))
     ;; Ignore remote Lisp feature changes.
     ((:new-features features)
      (declare (ignore features)))
@@ -323,8 +359,15 @@ are communications problems."
     ;; Handle streaming output from remote Lisp
     ((:write-string string &rest args)
      (declare (ignore args))
-     (write-string string)
-     (finish-output))
+     (cond
+       ((functionp *write-string-hook*)
+        (funcall *write-string-hook* string))
+       ((streamp *write-string-hook*)
+        (write-string string *write-string-hook*)
+        (finish-output *write-string-hook*))
+       (t
+        (write-string string)
+        (finish-output))))
     ((:debug-condition thread message)
      (assert thread)
      (print (list :debug-condition thread message)))
