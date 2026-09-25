@@ -425,13 +425,13 @@ SLIME-NETWORK-ERROR when there are network problems sending SEXP."
       ;; return spuriously before DONE has been notified, so wait again if our result is not yet
       ;; available.
 
-      ;; ;madhu 191210 THE ABOVE STRATEGY IS A RETARDED RECIPE FOR
-      ;; DEADLOCK. It came with the google Copyright
-      ;;
-      (bordeaux-threads:condition-wait done done-lock)
-      #+nil
+      ;; atgreen/icl "imporve backend process handling"
+      ;; Use a timeout to periodically check if the connection is still alive.
       (loop until result-available
-	    do (bordeaux-threads:condition-wait done done-lock)))
+	    do (bordeaux-threads:condition-wait done done-lock :timeout 1)
+	    ;; Check if connection died while we were waiting
+	    (when (eq (state connection) :dead)
+	      (error 'slime-network-error)))
     (unless result-available
       (error "Evaluation failed"))
     (when (and (consp result) (eq (car result) +abort+))
