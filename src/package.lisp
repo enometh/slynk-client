@@ -15,4 +15,9 @@
            #:*write-string-hook*
            #:*read-string-hook*
            #:*slynk-client-debug*
+           #:*debug-hook*
+           #:*debug-activate-hook*
+           #:*debug-return-hook*
+           #:slime-eval-async-in-thread
+           #:slime-eval-in-thread
            #:close-all))
