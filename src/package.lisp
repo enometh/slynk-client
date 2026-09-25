@@ -14,4 +14,5 @@
            #:with-slime-connection
            #:*write-string-hook*
            #:*read-string-hook*
+           #:*slynk-client-debug*
            #:close-all))
