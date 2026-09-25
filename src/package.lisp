@@ -12,4 +12,6 @@
            #:slime-network-error
            #:slime-pending-evals-p
            #:with-slime-connection
+           #:*write-string-hook*
+           #:*read-string-hook*
            #:close-all))
