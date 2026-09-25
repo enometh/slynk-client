@@ -319,6 +319,11 @@ are communications problems."
      (print (list :inspect what wait-thread wait-tag)))
     ((:background-message message)
      (print (list :background-message message)))
+    ;; Handle streaming output from remote Lisp
+    ((:write-string string &rest args)
+     (declare (ignore args))
+     (write-string string)
+     (finish-output))
     ((:debug-condition thread message)
      (assert thread)
      (print (list :debug-condition thread message)))
